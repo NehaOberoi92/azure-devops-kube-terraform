@@ -1,0 +1,63 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  tag: '$(Build.BuildId)'
+# stage 1
+# Build docker image
+# Publish the k8s files
+
+stages:
+- stage: Build
+  displayName: Build 
+  jobs:  
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps: 
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'DockerHub'
+        repository: 'currency-devops'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: '$(tag)'
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)'
+        Contents: '**/*.yaml'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)'
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'manifests'
+        publishLocation: 'Container'
+
+# stage 2
+# download the k8s files
+# deploy to k8s cluster
+
+- stage: Deploy
+  displayName: Deploy Image
+  jobs:  
+  - job: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps: 
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        buildType: 'current'
+        artifactName: 'manifests'
+        itemPattern: '**/*.yaml'
+        targetPath: '$(System.ArtifactsDirectory)'
+    - task: KubernetesManifest@0
+      inputs:
+        action: 'deploy'
+        kubernetesServiceConnection: 'aks-connection-dev'
+        manifests: '$(System.ArtifactsDirectory)/deployment.yaml'
+        containers: 'in28min/currency-exchange-devops:$(tag)'
